@@ -97,6 +97,28 @@
     <div id="countDisplay" class="text-center text-xs text-stone-400 mt-6 hidden"></div>
   </main>
 
+  <!-- Modal Zoom de Imagen (Lightbox) -->
+  <div id="zoomModal" class="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm hidden flex items-center justify-center p-4" onclick="cerrarZoom(event)">
+    <div class="relative max-w-4xl max-h-[90vh] flex flex-col items-center justify-center" onclick="event.stopPropagation()">
+      <button onclick="cerrarZoom()" class="absolute -top-10 right-0 text-white hover:text-bazar-300 text-3xl font-bold leading-none p-1">&times;</button>
+      
+      <!-- Imagen ampliada -->
+      <img id="zoomImg" src="" alt="Zoom Producto" class="max-w-full max-h-[75vh] object-contain rounded-2xl shadow-2xl bg-white/5 select-none">
+      
+      <!-- Controles de navegación en zoom -->
+      <div id="zoomControls" class="flex items-center justify-between w-full mt-3 px-2">
+        <button onclick="cambiarFotoZoom(-1)" class="bg-white/20 hover:bg-white/40 text-white px-3 py-1.5 rounded-full font-bold text-sm backdrop-blur transition flex items-center gap-1">
+          ‹ Anterior
+        </button>
+        <span id="zoomCounter" class="text-white text-xs bg-black/50 px-3 py-1 rounded-full font-semibold">1/1</span>
+        <button onclick="cambiarFotoZoom(1)" class="bg-white/20 hover:bg-white/40 text-white px-3 py-1.5 rounded-full font-bold text-sm backdrop-blur transition flex items-center gap-1">
+          Siguiente ›
+        </button>
+      </div>
+      <p id="zoomTitle" class="text-white/90 text-sm font-semibold text-center mt-2 px-4 line-clamp-1"></p>
+    </div>
+  </div>
+
   <!-- Carrito Lateral -->
   <div id="cartModal" class="fixed inset-0 z-50 overflow-hidden hidden">
     <div class="absolute inset-0 bg-stone-900/40 backdrop-blur-sm transition-opacity" onclick="toggleCart(false)"></div>
@@ -132,13 +154,14 @@
   </div>
 
   <script>
-    const APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycby_kibEnyrDJtfXOe195P1njvrA4PVmZFxqSrOJ9NRQnFxhKsA0HRDOM0_PmOqMEYcN/exec"; // URL del Google Apps Script que devuelve el JSON de productos
-    const WHATSAPP_PHONE = "5491124529009"; // Número de WhatsApp del negocio (con código de país, sin signos ni espacios)
+    const APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycby_kibEnyrDJtfXOe195P1njvrA4PVmZFxqSrOJ9NRQnFxhKsA0HRDOM0_PmOqMEYcN/exec";
+    const WHATSAPP_PHONE = "5491124529009";
 
     let allProducts = [];
     let activeCategory = 'Todas';
     let cart = [];
     let currentPhotoIndices = {};
+    let currentZoomProduct = null;
 
     async function cargarCatalogo() {
       const status = document.getElementById('statusMessage');
@@ -224,13 +247,19 @@
         return `
           <div class="bg-white rounded-2xl p-3 border border-bazar-100 flex flex-col justify-between shadow-sm hover:shadow-md transition">
             <div>
-              <div class="relative w-full h-44 bg-bazar-50 rounded-xl overflow-hidden mb-3 flex items-center justify-center">
+              <div class="relative w-full h-44 bg-bazar-50 rounded-xl overflow-hidden mb-3 flex items-center justify-center group">
                 ${currentImg ? `
-                  <img id="img-${p.id}" src="${currentImg}" alt="${p.nombre}" class="w-full h-full object-contain p-2" loading="lazy">
+                  <img id="img-${p.id}" src="${currentImg}" alt="${p.nombre}" class="w-full h-full object-contain p-2 cursor-pointer transition-transform duration-200 group-hover:scale-105" loading="lazy" onclick="abrirZoom(${p.id})">
+                  
+                  <!-- Icono de lupa indicador de zoom -->
+                  <button onclick="abrirZoom(${p.id})" title="Ver en grande" class="absolute top-2 right-2 bg-white/80 hover:bg-white text-stone-700 w-7 h-7 rounded-full flex items-center justify-center shadow text-xs backdrop-blur opacity-80 sm:opacity-0 group-hover:opacity-100 transition">
+                    🔍
+                  </button>
+
                   ${fotos.length > 1 ? `
-                    <button onclick="cambiarFoto(${p.id}, -1)" class="absolute left-1 top-1/2 -translate-y-1/2 bg-white/80 hover:bg-white text-stone-700 w-6 h-6 rounded-full flex items-center justify-center shadow text-xs font-bold">‹</button>
-                    <button onclick="cambiarFoto(${p.id}, 1)" class="absolute right-1 top-1/2 -translate-y-1/2 bg-white/80 hover:bg-white text-stone-700 w-6 h-6 rounded-full flex items-center justify-center shadow text-xs font-bold">›</button>
-                    <span id="dots-${p.id}" class="absolute bottom-1 bg-black/40 text-white text-[10px] px-2 py-0.5 rounded-full">${curIdx + 1}/${fotos.length}</span>
+                    <button onclick="cambiarFoto(event, ${p.id}, -1)" class="absolute left-1 top-1/2 -translate-y-1/2 bg-white/80 hover:bg-white text-stone-700 w-6 h-6 rounded-full flex items-center justify-center shadow text-xs font-bold">‹</button>
+                    <button onclick="cambiarFoto(event, ${p.id}, 1)" class="absolute right-1 top-1/2 -translate-y-1/2 bg-white/80 hover:bg-white text-stone-700 w-6 h-6 rounded-full flex items-center justify-center shadow text-xs font-bold">›</button>
+                    <span id="dots-${p.id}" class="absolute bottom-1 bg-black/40 text-white text-[10px] px-2 py-0.5 rounded-full select-none">${curIdx + 1}/${fotos.length}</span>
                   ` : ''}
                 ` : `
                   <div class="flex flex-col items-center justify-center text-bazar-300">
@@ -266,7 +295,8 @@
       }).join('');
     }
 
-    function cambiarFoto(id, delta) {
+    function cambiarFoto(event, id, delta) {
+      if (event) event.stopPropagation();
       const prod = allProducts.find(p => p.id === id);
       if (!prod || !prod.fotos || prod.fotos.length <= 1) return;
 
@@ -282,6 +312,60 @@
       if (dotsEl) dotsEl.textContent = `${idx + 1}/${prod.fotos.length}`;
     }
 
+    // Funciones del Modal de Zoom (Lightbox)
+    function abrirZoom(id) {
+      const prod = allProducts.find(p => p.id === id);
+      if (!prod || !prod.fotos || prod.fotos.length === 0) return;
+
+      currentZoomProduct = prod;
+      actualizarVistaZoom();
+      document.getElementById('zoomModal').classList.remove('hidden');
+    }
+
+    function cerrarZoom(event) {
+      if (event && event.target.id !== 'zoomModal' && event.target.tagName !== 'BUTTON') return;
+      document.getElementById('zoomModal').classList.add('hidden');
+      currentZoomProduct = null;
+    }
+
+    function actualizarVistaZoom() {
+      if (!currentZoomProduct) return;
+      const curIdx = currentPhotoIndices[currentZoomProduct.id] || 0;
+      const zoomImg = document.getElementById('zoomImg');
+      const zoomCounter = document.getElementById('zoomCounter');
+      const zoomControls = document.getElementById('zoomControls');
+      const zoomTitle = document.getElementById('zoomTitle');
+
+      zoomImg.src = currentZoomProduct.fotos[curIdx];
+      zoomTitle.textContent = currentZoomProduct.nombre;
+
+      if (currentZoomProduct.fotos.length > 1) {
+        zoomControls.classList.remove('hidden');
+        zoomCounter.textContent = `${curIdx + 1} / ${currentZoomProduct.fotos.length}`;
+      } else {
+        zoomControls.classList.add('hidden');
+      }
+    }
+
+    function cambiarFotoZoom(delta) {
+      if (!currentZoomProduct) return;
+      cambiarFoto(null, currentZoomProduct.id, delta);
+      actualizarVistaZoom();
+    }
+
+    // Cerrar con Escape o mover con teclas de flecha
+    window.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') {
+        document.getElementById('zoomModal').classList.add('hidden');
+        toggleCart(false);
+      }
+      if (!document.getElementById('zoomModal').classList.contains('hidden') && currentZoomProduct) {
+        if (e.key === 'ArrowLeft') cambiarFotoZoom(-1);
+        if (e.key === 'ArrowRight') cambiarFotoZoom(1);
+      }
+    });
+
+    // Lógica del Carrito
     function addToCart(id) {
       const product = allProducts.find(p => p.id === id);
       const existing = cart.find(item => item.id === id);
